@@ -1,0 +1,44 @@
+---
+
+- hosts: VirtualBox
+  user: user
+  become: yes
+  name: Hadoop deployment for single node
+  tasks:
+#setting up users
+#sudo ansible-playbook ansible-for-hadoop.yml -K -u user
+  - name: Update Ubuntu
+    apt: update_cache=yes
+  - name: Install JAVA JDK
+    apt: name=openjdk-7-jdk state=present 
+  - name: Create a group - hadoop
+    group: name=hadoop state=present
+  - name: create user - hduser
+    user:
+      name: hduser 
+      groups: hadoop
+      append: yes
+      generate_ssh_key: yes
+      ssh_key_bits: 4096
+      ssh_key_file: /home/hduser/.ssh/id_rsa
+
+  - name: download hadoop
+    get_url:
+     url: http://ftp.wayne.edu/apache/hadoop/common/hadoop-2.7.2/hadoop-2.7.2.tar.gz
+     dest: /usr/local/hadoop-2.7.2.tar.gz
+     #register: downloaded
+  - name: unzip hadoop
+    unarchive:
+        src: /usr/local/hadoop-2.7.2.tar.gz
+        dest: /usr/local/
+        creates: /usr/local/hadoop-2.7.2
+        copy: no
+        owner: hduser
+        group: hadoop
+       #become_user: hduser
+       
+  - name: link with current version of hadoop
+    file: state=link src=/usr/local/hadoop-2.7.2 state=link dest=/usr/local/hadoop
+
+  - name: give /usr/local folder the ownership
+    file: state=directory path=/usr/local owner=hduser group=hadoop recurse=yes

@@ -1,0 +1,110 @@
+---
+- hosts: VirtualBox
+  user: user
+  become: yes
+  name: Hadoop deployment for single node
+  tasks:
+  - lineinfile: 
+      dest: /etc/hosts 
+      regexp: "127.0.1.1 hadoop" 
+      line: "127.0.1.1 hadoop"
+  - lineinfile: 
+      dest: /etc/resolv.conf 
+      regexp: "nameserver 192.168.56.102" 
+      line: "nameserver 192.168.56.102"
+  - name: hostname file
+    lineinfile: dest=/etc/hostname regexp=".*" line="hadoop"
+  - name: set hostname
+    command: hostnamectl set-hostname hadoop
+#setting up users
+#sudo ansible-playbook ansible-for-hadoop.yml -K -u user --ask-pass
+  - name: Update Ubuntu
+    apt: update_cache=yes
+  - name: Install JAVA 7
+    apt: name=openjdk-7-jdk state=present
+  - name: Ensure packages setup and ready
+    apt:  name={{item}} state=present update_cache=yes
+    with_items:
+        - ssh
+        - rsync 
+  - name: Create a group - hadoop
+    group: name=hadoop state=present
+  - name: create user - hduser
+    user:
+      name: hduser 
+      groups: hadoop
+      append: yes
+      generate_ssh_key: yes
+      ssh_key_bits: 4096
+      ssh_key_file: /home/hduser/.ssh/id_rsa
+
+  - name: download hadoop
+    get_url:
+      url: http://ftp.wayne.edu/apache/hadoop/common/hadoop-2.7.2/hadoop-2.7.2.tar.gz
+      dest: /usr/local/hadoop-2.7.2.tar.gz
+  - name: unzip hadoop
+    unarchive:
+        src: /usr/local/hadoop-2.7.2.tar.gz
+        dest: /usr/local/
+        creates: /usr/local/hadoop-2.7.2
+        copy: no
+        owner: hduser
+        group: hadoop
+       #become_user: hduser
+       
+  - name: link with current version of hadoop
+    file: state=link src=/usr/local/hadoop-2.7.2 state=link dest=/usr/local/hadoop
+
+  - name: copy the modified files on hadoop
+    copy: dest=/usr/local/hadoop/etc/hadoop/{{item}} src=sourcef/{{item}} mode=0644 owner=hduser group=hadoop
+    with_items:
+        - hadoop-env.sh
+        - core-site.xml
+        - mapred-site.xml
+        - yarn-site.xml
+  - name: copy .bashrc
+    copy: src=sourcef/.bashrc dest= /home/user mode=0644 owner=hduser group=hadoop
+
+  - name: give /usr/local proper prevliages 
+    file: state=directory path=/usr/local owner=hduser group=hadoop recurse=yes
+
+  - name: Create a name node
+    file: path=/usr/local/hadoop_store/hdfs/namenode state=directory owner=hduser group=hadoop mode=0775 recurse=yes
+  
+  - name: Create a data node
+    file: path=/usr/local/hadoop_store/hdfs/datanode state=directory owner=hduser group=hadoop mode=0775 recurse=yes
+
+  - name: copy the modified files on hadoop
+    copy: dest=/usr/local/hadoop/etc/hadoop/{{item}} src=sourcef/{{item}} mode=0644 owner=hduser group=hadoop
+    with_items:
+        - hdfs-site.xml
+    notify: restart services
+
+  - name: set java home
+    lineinfile: dest=/usr/local//hadoop/etc/hadoop/hadoop-env.sh 
+                regexp='export JAVA_HOME.*' line='export JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64'
+                state=present
+                create=True
+    
+
+  - name: format name node
+    become: yes
+    become_user: hduser
+    command: /usr/local/hadoop/bin/hdfs namenode -format
+    args:
+      creates: /usr/local/hadoop/dfs
+    
+  - name: no host checking
+    command: echo "StrictHostKeyChecking no" >> ~/.ssh/config 
+    become_user: hduser
+
+  - name: give /usr/local proper prevliages 
+    file: state=directory path=/usr/local owner=hduser group=hadoop recurse=yes
+
+  - name: start dfs
+    command: /usr/local/hadoop/sbin/start-dfs.sh
+    become_user: hduser
+    
+  - name: start yarn
+    command: /usr/local/hadoop/sbin/start-yarn.sh
+    become_user: hduser
